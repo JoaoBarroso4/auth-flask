@@ -1,10 +1,11 @@
+import bcrypt
 from flask import Flask, request, jsonify
 from models.user import User
 from database import db
 from flask_login import LoginManager, login_user, current_user, logout_user, login_required
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://admin:admin123@localhost:3306/flask-crud'
 app.config['SECRET_KEY'] = "your_secret_key"
 
 login_manager = LoginManager()
@@ -29,7 +30,7 @@ def login():
         # first() because username is unique
         user = User.query.filter_by(username=username).first()
 
-        if user and user.password == password:
+        if user and bcrypt.checkpw(str.encode(password), str.encode(user.password)):
             login_user(user)
             return jsonify({'message': 'Logged in successfully'})
 
@@ -50,7 +51,8 @@ def create_user():
     password = data.get('password')
 
     if username and password:
-        user = User(username=username, password=password)
+        hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())
+        user = User(username=username, password=hashed_password, role='user')
         db.session.add(user)
         db.session.commit()
         return jsonify({'message': 'User created successfully'})
@@ -72,6 +74,10 @@ def get_user(id):
 def update_user(id):
     data = request.get_json()
     user = User.query.get(id)
+
+    if current_user.id != id and current_user.role == 'user':
+        return jsonify({'error': 'Update not allowed'}), 403
+
     if user and data.get('password'):
         user.password = data.get('password')
         db.session.commit()
@@ -84,6 +90,9 @@ def update_user(id):
 @login_required
 def delete_user(id):
     user = User.query.get(id)
+
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Operation not allowed'}), 403
 
     if current_user.id == id:
         return jsonify({'error': 'Deletion not allowed'}), 403
